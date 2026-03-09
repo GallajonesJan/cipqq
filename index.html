@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}Coding Workspace{% endblock %}
+
+{% block scripts %}
+<script>
+const SEV_LABELS = {
+  1: "Minor Mention",
+  2: "Weak Constraint",
+  3: "Moderate Issue",
+  4: "Significant Structural Issue",
+  5: "Critical Systemic Barrier"
+};
+
+const SEV_COLORS = {
+  1: "#1D7A4E", 2: "#1D7A4E",
+  3: "#D4860A",
+  4: "#C0392B", 5: "#C0392B"
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn      = document.getElementById('ai-suggest-btn');
+  const result   = document.getElementById('ai-result');
+  const errorBox = document.getElementById('ai-error');
+  const badge    = document.getElementById('ai-score-badge');
+  const lbl      = document.getElementById('ai-score-label');
+  const rationale= document.getElementById('ai-rationale');
+  const factors  = document.getElementById('ai-factors');
+  const acceptBtn= document.getElementById('ai-accept-btn');
+
+  if (!btn) return;
+
+  btn.addEventListener('click', async () => {
+    const snippet = document.querySelector('textarea[name="snippet"]')?.value?.trim();
+    if (!snippet) {
+      errorBox.textContent = 'Please enter a narrative snippet first.';
+      errorBox.style.display = 'block';
+      result.style.display = 'none';
+      return;
+    }
+
+    const domain = document.getElementById('domain-input')?.value || '';
+    const indSel = document.getElementById('indicator-select');
+    const selectedOption = indSel ? indSel.options[indSel.selectedIndex] : null;
+    const indicatorName = selectedOption ? selectedOption.text.split(' — ')[1] || '' : '';
+
+    btn.disabled = true;
+    btn.innerHTML = '<span style="display:inline-block;animation:spin 0.8s linear infinite">&#9696;</span>&nbsp; Analyzing&hellip;';
+    result.style.display = 'none';
+    errorBox.style.display = 'none';
+
+    try {
+      const resp = await fetch('/api/suggest-severity', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ snippet, domain, indicator_name: indicatorName })
+      });
+      const data = await resp.json();
+
+      if (data.error) {
+        errorBox.textContent = data.error;
+        errorBox.style.display = 'block';
+      } else {
+        const score = data.score;
+        badge.textContent = score;
+        badge.style.color = SEV_COLORS[score] || 'var(--navy)';
+        lbl.textContent = SEV_LABELS[score] || '';
+        rationale.textContent = data.rationale || '';
+        factors.innerHTML = '';
+        (data.key_factors || []).forEach(f => {
+          const chip = document.createElement('span');
+          chip.textContent = f;
+          chip.style.cssText = 'font-size:11px;padding:3px 10px;background:var(--mist);border-radius:20px;color:var(--slate);';
+          factors.appendChild(chip);
+        });
+        acceptBtn.dataset.score = score;
+        result.style.display = 'block';
+      }
+    } catch (e) {
+      errorBox.textContent = 'Network error: ' + e.message;
+      errorBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '&#10024;&nbsp; AI Suggest Score';
+    }
+  });
+
+  // Accept button applies the suggested score
+  if (acceptBtn) {
+    acceptBtn.addEventListener('click', () => {
+      const score = parseInt(acceptBtn.dataset.score);
+      if (score) updateSeverityUI(score);
+      result.style.display = 'none';
+    });
+  }
+});
+</script>
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Page Banner -->
+<div class="page-banner">
+  <h1>Coding Workspace</h1>
+  <p>Segment, classify, and score narrative evidence from FGDs, KIIs, and survey responses.</p>
+  <div class="page-banner-meta">
+    <div class="meta-chip">
+      <strong>{{ all_entries|length }}</strong>
+      Entries Coded
+    </div>
+    <div class="meta-chip">
+      <strong>{{ analytics.cipq_index }}</strong>
+      CIPQ Index
+    </div>
+    <div class="meta-chip">
+      <strong>{{ analytics.indicators|selectattr('priority')|list|length }}</strong>
+      Priority Signals
+    </div>
+  </div>
+</div>
+
+<div class="workspace">
+
+  <!-- LEFT: Form Panel -->
+  <aside class="panel-left">
+
+    {% if edit_entry %}
+    <div class="edit-banner">
+      <span>✏ Editing entry <strong>{{ edit_entry.segment_id }}</strong></span>
+      <a href="/" class="btn btn-ghost btn-sm">Cancel</a>
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{% if edit_entry %}/update/{{ edit_entry.id }}{% else %}/add{% endif %}">
+
+      <!-- Segment Info -->
+      <div class="form-section">
+        <div class="section-label">Segment Information</div>
+        <div class="form-group">
+          <label class="field-label">Segment ID</label>
+          <input type="text" name="segment_id" placeholder="e.g. FGD1_023" value="{{ edit_entry.segment_id if edit_entry else '' }}">
+          <p class="field-hint">Leave blank to auto-generate.</p>
+        </div>
+        <div class="form-group">
+          <label class="field-label">Narrative Snippet <span style="color:var(--red)">*</span></label>
+          <textarea name="snippet" placeholder="Paste the narrative segment here…" required>{{ edit_entry.snippet if edit_entry else '' }}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="field-label">Session ID</label>
+          <input type="text" name="session" placeholder="e.g. FGD1, KII2" value="{{ edit_entry.session if edit_entry else '' }}">
+        </div>
+      </div>
+
+      <!-- Domain -->
+      <div class="form-section">
+        <div class="section-label">CIPQ Domain</div>
+        <input type="hidden" name="domain" id="domain-input" value="{{ edit_entry.domain if edit_entry else 'Creation' }}">
+        <div class="domain-grid">
+          {% for domain in domain_order %}
+          <button type="button" class="domain-btn {% if (edit_entry and edit_entry.domain == domain) or (not edit_entry and domain == 'Creation') %}active{% endif %}" data-domain="{{ domain }}">
+            <span class="dot domain-dot-{{ domain }}"></span>
+            {{ domain }}
+          </button>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Indicator -->
+      <div class="form-section">
+        <div class="section-label">Indicator</div>
+        <div class="form-group">
+          <label class="field-label">Indicator Code</label>
+          <select name="indicator_code" id="indicator-select">
+            {% set current_domain = edit_entry.domain if edit_entry else 'Creation' %}
+            {% for ind in indicators[current_domain] %}
+            <option value="{{ ind.code }}" {% if edit_entry and edit_entry.indicator_code == ind.code %}selected{% endif %}>
+              {{ ind.code }} — {{ ind.name }}
+            </option>
+            {% endfor %}
+          </select>
+          <p class="field-hint" id="indicator-desc">
+            {{ indicators[edit_entry.domain if edit_entry else 'Creation'][0].desc }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Severity -->
+      <div class="form-section">
+        <div class="section-label">Severity Score</div>
+
+        <!-- AI Suggest Button -->
+        <button type="button" id="ai-suggest-btn" class="btn btn-ghost" style="width:100%;margin-bottom:12px;justify-content:center;border-style:dashed;">
+          &#10024;&nbsp; AI Suggest Score
+        </button>
+
+        <!-- AI Result Panel -->
+        <div id="ai-result" style="display:none;margin-bottom:12px;border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+          <div style="padding:10px 14px;display:flex;align-items:center;justify-content:space-between;background:var(--mist);">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:11px;font-weight:600;letter-spacing:1px;color:var(--slate);text-transform:uppercase;">AI Suggestion</span>
+              <span id="ai-score-badge" style="font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:var(--navy);"></span>
+              <span id="ai-score-label" style="font-size:11px;color:var(--slate);"></span>
+            </div>
+            <button type="button" id="ai-accept-btn" class="btn btn-gold btn-sm">Apply Score</button>
+          </div>
+          <div style="padding:10px 14px;">
+            <p id="ai-rationale" style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.6;"></p>
+            <div id="ai-factors" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
+        </div>
+
+        <!-- AI Error Panel -->
+        <div id="ai-error" style="display:none;margin-bottom:12px;padding:10px 14px;background:#FDEDEB;border:1px solid #F5C6C2;border-radius:6px;font-size:12px;color:var(--red);"></div>
+
+        <input type="hidden" name="severity" id="severity-input" value="{{ edit_entry.severity if edit_entry else '3' }}">
+        <div class="severity-row">
+          {% for s in [1,2,3,4,5] %}
+          <button type="button" class="sev-btn" data-sev="{{ s }}">{{ s }}</button>
+          {% endfor %}
+        </div>
+        <div class="severity-desc" id="sev-desc"></div>
+      </div>
+
+      <!-- Metadata -->
+      <div class="form-section">
+        <div class="section-label">Metadata</div>
+        <div class="form-group">
+          <label class="field-label">Stakeholder Group</label>
+          <select name="stakeholder">
+            {% for s in stakeholders %}
+            <option value="{{ s }}" {% if edit_entry and edit_entry.stakeholder == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="field-label">Region</label>
+          <select name="region">
+            {% for r in regions %}
+            <option value="{{ r }}" {% if edit_entry and edit_entry.region == r %}selected{% endif %}>{{ r }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button type="submit" class="btn btn-primary" style="flex:1">
+          {% if edit_entry %}✓ Update Entry{% else %}+ Add Entry{% endif %}
+        </button>
+        {% if not edit_entry %}
+        <button type="reset" class="btn btn-ghost">Clear</button>
+        {% endif %}
+      </div>
+    </form>
+  </aside>
+
+  <!-- RIGHT: Entry List -->
+  <section class="panel-right">
+
+    <div class="table-header">
+      <h2 class="table-title">Coded Entries</h2>
+      <div class="filter-tabs">
+        <a class="filter-tab {% if domain_filter == 'All' %}active{% endif %}" href="/">All</a>
+        {% for domain in domain_order %}
+        <a class="filter-tab {% if domain_filter == domain %}active{% endif %}" href="/?domain={{ domain }}">{{ domain }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if entries %}
+      {% for entry in entries %}
+      <div class="entry-card domain-{{ entry.domain }}">
+        <div class="entry-top">
+          <div class="entry-badges">
+            <span class="badge badge-seg">{{ entry.segment_id }}</span>
+            <span class="badge badge-domain {{ entry.domain }}">{{ entry.domain }}</span>
+            <span class="badge badge-code">{{ entry.indicator_code }} · {{ entry.indicator_name }}</span>
+          </div>
+          <div class="entry-actions">
+            <a href="/edit/{{ entry.id }}" class="btn btn-ghost btn-sm">Edit</a>
+            <form method="POST" action="/delete/{{ entry.id }}" onsubmit="return confirm('Delete this entry?')">
+              <button type="submit" class="btn btn-danger">Delete</button>
+            </form>
+          </div>
+        </div>
+
+        <div class="entry-snippet">{{ entry.snippet }}</div>
+
+        <div class="entry-meta">
+          <span class="entry-meta-item">
+            Severity&nbsp;
+            <span class="sev-pill sev-{{ entry.severity }}">{{ entry.severity }} — {{ severity_labels[entry.severity] }}</span>
+          </span>
+          <span class="entry-meta-item">👤 {{ entry.stakeholder }}</span>
+          <span class="entry-meta-item">📍 {{ entry.region }}</span>
+          {% if entry.session %}
+          <span class="entry-meta-item">🗂 {{ entry.session }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        <h3>No entries yet</h3>
+        <p>Use the form on the left to code your first narrative segment.</p>
+      </div>
+    {% endif %}
+
+  </section>
+
+</div>
+{% endblock %}

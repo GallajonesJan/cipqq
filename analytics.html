@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}Analytics Dashboard{% endblock %}
+
+{% block content %}
+
+<style>
+  .domain-scores-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  }
+  .progress-fill  { height: 100%; border-radius: 3px; width: 0; }
+  .comp-bar-fill  { height: 100%; border-radius: 3px; width: 0; }
+  .ind-bar-fill   { height: 100%; border-radius: 3px; width: 0; }
+  .comp-bar-fill.region-bar {
+    background: linear-gradient(to right, #E05A2B, #C0392B);
+  }
+  .section-card.priority-card { border-left: 4px solid var(--red); }
+  .count-badge-red { background: #FDEDEB; color: var(--red); }
+  .sev-hi  { font-weight: 600; color: #C0392B; }
+  .sev-mid { font-weight: 600; color: #D4860A; }
+  .sev-lo  { font-weight: 600; color: #1D7A4E; }
+  .ind-name-cell {
+    font-size: 12px;
+    color: var(--text);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ind-col-flex { flex: 1; min-width: 0; }
+  .ind-count-muted { color: var(--text-lt); }
+  .stakeholder-card { margin-bottom: 20px; }
+  .tbl-full { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .tbl-head th {
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--slate);
+    border-bottom: 2px solid var(--border);
+  }
+  .tbl-head th.r { text-align: right; }
+  .tbl-head th.c { text-align: center; }
+  .tbl-row td { padding: 9px 10px; border-bottom: 1px solid var(--mist); }
+  .tbl-row td.r { text-align: right; }
+  .tbl-row td.c { text-align: center; }
+  .tbl-row td.muted { color: var(--slate); font-size: 12px; }
+  .dash-muted { color: var(--mist); }
+  .threshold-note { font-size: 11px; color: var(--text-lt); margin-top: 2px; }
+</style>
+
+<div class="page-banner">
+  <h1>Analytics Dashboard</h1>
+  <p>Aggregated CIPQ indicators, domain scores, stakeholder comparisons, and regional diagnostics.</p>
+</div>
+
+<div style="padding: 32px 36px; max-width: 1200px;">
+
+  {% if not entries %}
+  <div class="empty-state">
+    <h3>No data available</h3>
+    <p>Return to the <a href="/">Coding Workspace</a> to add entries.</p>
+  </div>
+  {% else %}
+
+  <!-- TOP STATS -->
+  <div style="display: grid; grid-template-columns: 200px 1fr; gap: 16px; margin-bottom: 28px;">
+    <div class="stat-card cipq-index" style="display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;">
+      <div class="stat-card-label">CIPQ Index</div>
+      <div class="stat-card-value">{{ analytics.cipq_index }}</div>
+      <div class="stat-card-sub">Overall structural<br>pressure score / 5.0</div>
+    </div>
+    <div class="domain-scores-grid">
+      {% for d in analytics.domains %}
+      <div class="domain-stat-card {{ d.domain }}">
+        <div class="label">{{ d.domain }}</div>
+        <div class="score">{{ d.avg }}</div>
+        <div class="sub">{{ d.count }} segment{{ 's' if d.count != 1 }}</div>
+        <div class="progress-bar">
+          <div class="progress-fill" data-pct="{{ d.pct }}"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- PRIORITY SIGNALS -->
+  {% set priority_inds = analytics.indicators | selectattr('priority') | list %}
+  {% if priority_inds %}
+  <div class="section-card priority-card">
+    <div class="section-card-header">
+      <div>
+        <div class="section-card-title">Priority Policy Signals</div>
+        <div class="threshold-note">Indicators meeting threshold: frequency &ge; 3 and average severity &ge; 4.0</div>
+      </div>
+      <span class="section-card-count count-badge-red">{{ priority_inds|length }} flagged</span>
+    </div>
+    {% for ind in priority_inds %}
+    {% set cls = 'hi' if ind.avg >= 4 else ('mid' if ind.avg >= 3 else 'lo') %}
+    <div class="indicator-row">
+      <span class="ind-code {{ ind.domain }}">{{ ind.code }}</span>
+      <span class="ind-name">{{ ind.name }}</span>
+      <span class="priority-flag">PRIORITY</span>
+      <div class="ind-bar-wrap">
+        <div class="ind-bar">
+          <div class="ind-bar-fill {{ cls }}" data-pct="{{ ind.pct }}"></div>
+        </div>
+      </div>
+      <div class="ind-stats">
+        <span>n={{ ind.count }}</span>
+        <span class="ind-avg {{ cls }}">{{ ind.avg }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- MAIN GRID -->
+  <div class="analytics-grid-wide">
+
+    <!-- Indicator Ranking -->
+    <div class="section-card">
+      <div class="section-card-header">
+        <div class="section-card-title">Indicator Severity Ranking</div>
+        <span class="section-card-count">{{ analytics.indicators|length }} indicators</span>
+      </div>
+      {% for ind in analytics.indicators %}
+      {% set cls = 'hi' if ind.avg >= 4 else ('mid' if ind.avg >= 3 else 'lo') %}
+      <div class="indicator-row">
+        <span class="ind-code {{ ind.domain }}">{{ ind.code }}</span>
+        <div class="ind-col-flex">
+          <div class="ind-name-cell">{{ ind.name }}</div>
+          <div class="ind-bar">
+            <div class="ind-bar-fill {{ cls }}" data-pct="{{ ind.pct }}"></div>
+          </div>
+        </div>
+        <div class="ind-stats">
+          <span class="ind-count-muted">x{{ ind.count }}</span>
+          <span class="ind-avg {{ cls }}">{{ ind.avg }}</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div>
+      <!-- Stakeholder Breakdown -->
+      <div class="section-card stakeholder-card">
+        <div class="section-card-header">
+          <div class="section-card-title">Stakeholder Breakdown</div>
+          <span class="section-card-count">{{ analytics.stakeholders|length }} groups</span>
+        </div>
+        {% for s in analytics.stakeholders %}
+        {% set pct = ((s.avg / 5) * 100)|int %}
+        <div class="comp-row">
+          <span class="comp-name">{{ s.name }}</span>
+          <div class="comp-bar-wrap">
+            <div class="comp-bar">
+              <div class="comp-bar-fill" data-pct="{{ pct }}"></div>
+            </div>
+          </div>
+          <span class="comp-count">{{ s.count }} entries</span>
+          <span class="comp-avg">{{ s.avg }}</span>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Regional Comparison -->
+      <div class="section-card">
+        <div class="section-card-header">
+          <div class="section-card-title">Regional Comparison</div>
+          <span class="section-card-count">{{ analytics.regions|length }} regions</span>
+        </div>
+        {% for r in analytics.regions %}
+        {% set pct = ((r.avg / 5) * 100)|int %}
+        <div class="comp-row">
+          <span class="comp-name">{{ r.name }}</span>
+          <div class="comp-bar-wrap">
+            <div class="comp-bar">
+              <div class="comp-bar-fill region-bar" data-pct="{{ pct }}"></div>
+            </div>
+          </div>
+          <span class="comp-count">{{ r.count }} entries</span>
+          <span class="comp-avg">{{ r.avg }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- FULL TABLE -->
+  <div class="section-card">
+    <div class="section-card-header">
+      <div class="section-card-title">Full Indicator Frequency &amp; Severity Table</div>
+      <a href="/" class="btn btn-ghost btn-sm">&larr; Back to Coding</a>
+    </div>
+    <table class="tbl-full">
+      <thead class="tbl-head">
+        <tr>
+          <th>Code</th>
+          <th>Indicator</th>
+          <th>Domain</th>
+          <th class="r">Frequency</th>
+          <th class="r">Avg Severity</th>
+          <th class="c">Priority</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ind in analytics.indicators %}
+        {% set sev_cls = 'sev-hi' if ind.avg >= 4 else ('sev-mid' if ind.avg >= 3 else 'sev-lo') %}
+        <tr class="tbl-row">
+          <td><span class="ind-code {{ ind.domain }}">{{ ind.code }}</span></td>
+          <td>{{ ind.name }}</td>
+          <td class="muted">{{ ind.domain }}</td>
+          <td class="r">{{ ind.count }}</td>
+          <td class="r"><span class="{{ sev_cls }}">{{ ind.avg }}</span></td>
+          <td class="c">
+            {% if ind.priority %}
+              <span class="priority-flag">HIGH</span>
+            {% else %}
+              <span class="dash-muted">&mdash;</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('[data-pct]').forEach(function(el) {
+    el.style.width = el.getAttribute('data-pct') + '%';
+  });
+</script>
+{% endblock %}
